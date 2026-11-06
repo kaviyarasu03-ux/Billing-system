@@ -21,8 +21,23 @@ npm ci
 npm start
 ```
 
-Copy `backend/.env.example` to `backend/.env` and set `MONGO_URI` to a reachable
-MongoDB connection string. Never commit `.env` or database credentials.
+Copy `backend/.env.example` to `backend/.env`, replace every placeholder, and set
+`MONGO_URI` to a reachable MongoDB connection string. Use a new admin password
+and a random `JWT_SECRET` of at least 32 characters. On first startup, the API
+creates the admin account from `ADMIN_EMAIL` and `ADMIN_PASSWORD`; it does not
+reset an existing admin password. Keep these values in deployment secrets in
+production. Never commit `.env` or database credentials.
+
+Generate a JWT secret locally with:
+
+```powershell
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+Customers can create an account from the sign-in page. Customer accounts can
+browse the cake catalog only. Admins can manage cakes, create bills, and view
+billing history. The backend checks the account role on every protected API
+request; hiding admin controls in the frontend is not the security boundary.
 
 ## Cloudflare frontend deployment
 

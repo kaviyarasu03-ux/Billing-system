@@ -1,12 +1,31 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import axios from "axios";
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL || "http://localhost:5000")
     .replace(/\/$/, "");
-const API = `${API_BASE_URL}/api`;
+const api = axios.create({ baseURL: `${API_BASE_URL}/api` });
+
+api.interceptors.request.use(config => {
+    const token = localStorage.getItem("bakeryAuthToken");
+    if (token) config.headers.Authorization = `Bearer ${token}`;
+    return config;
+});
+
+api.interceptors.response.use(undefined, error => {
+    const isAuthRequest = error.config?.url?.startsWith("/auth/");
+    if (error.response?.status === 401 && !isAuthRequest) {
+        localStorage.removeItem("bakeryAuthToken");
+        window.dispatchEvent(new Event("bakery-session-expired"));
+    }
+    return Promise.reject(error);
+});
 
 function App() {
     const [page, setPage] = useState("Dashboard");
+    const [user, setUser] = useState(null);
+    const [authLoading, setAuthLoading] = useState(
+        () => Boolean(localStorage.getItem("bakeryAuthToken"))
+    );
     const [cakes, setCakes] = useState([]);
     const [bills, setBills] = useState([]);
 
@@ -23,25 +42,59 @@ function App() {
     const [discount, setDiscount] = useState(0);
     const [editing, setEditing] = useState(null);
 
-    const loadData = async () => {
+    const loadData = useCallback(async (role) => {
         try {
-            const [c, b] = await Promise.all([
-                axios.get(`${API}/cakes`),
-                axios.get(`${API}/bills`)
-            ]);
+            const requests = [api.get("/cakes")];
+            if (role === "admin") requests.push(api.get("/bills"));
+            const [c, b] = await Promise.all(requests);
             setCakes(c.data);
-            setBills(b.data);
+            setBills(b?.data || []);
         } catch {
-            alert("Backend connection failed!");
+            alert("Unable to load bakery data. Please try again.");
         }
+    }, []);
+
+    const clearSession = () => {
+        localStorage.removeItem("bakeryAuthToken");
+        setUser(null);
+        setCakes([]);
+        setBills([]);
     };
 
     useEffect(() => {
-        loadData();
+        let active = true;
+        const token = localStorage.getItem("bakeryAuthToken");
+        if (!token) return undefined;
+
+        api.get("/auth/me")
+            .then(response => {
+                if (active) {
+                    setUser(response.data.user);
+                    setPage(response.data.user.role === "admin" ? "Dashboard" : "Cakes");
+                    loadData(response.data.user.role);
+                }
+            })
+            .catch(() => {
+                localStorage.removeItem("bakeryAuthToken");
+            })
+            .finally(() => {
+                if (active) setAuthLoading(false);
+            });
+
+        return () => {
+            active = false;
+        };
+    }, [loadData]);
+
+    useEffect(() => {
+        const expireSession = clearSession;
+        window.addEventListener("bakery-session-expired", expireSession);
+        return () => window.removeEventListener("bakery-session-expired", expireSession);
     }, []);
 
     const addCake = async (e) => {
         e.preventDefault();
+        if (user?.role !== "admin") return;
 
         if (!cake.cakeName.trim() ||
             Number(cake.price) <= 0 ||
@@ -51,10 +104,10 @@ function App() {
 
         try {
             if (editing) {
-                await axios.put(`${API}/cakes/${editing}`, cake);
+                await api.put(`/cakes/${editing}`, cake);
                 setEditing(null);
             } else {
-                await axios.post(`${API}/cakes`, cake);
+                await api.post("/cakes", cake);
             }
 
             setCake({
@@ -62,7 +115,7 @@ function App() {
                 price: "", stock: ""
             });
 
-            loadData();
+            loadData(user.role);
             alert("Cake saved successfully!");
         } catch (err) {
             alert(err.response?.data?.message || "Unable to save cake");
@@ -83,8 +136,8 @@ function App() {
     const deleteCake = async (id) => {
         if (confirm("Do you want to delete this cake?")) {
             try {
-                await axios.delete(`${API}/cakes/${id}`);
-                loadData();
+                await api.delete(`/cakes/${id}`);
+                loadData(user.role);
             } catch {
                 alert("Delete failed");
             }
@@ -128,7 +181,7 @@ function App() {
         }
 
         try {
-            const response = await axios.post(`${API}/bills`, {
+            const response = await api.post("/bills", {
                 customerName: customer.name,
                 phone: customer.phone,
                 items: selected,
@@ -139,7 +192,7 @@ function App() {
             setSelected([]);
             setDiscount(0);
 
-            await loadData();
+            await loadData(user.role);
             setPage("History");
             printBill(response.data);
         } catch (err) {
@@ -201,6 +254,23 @@ function App() {
         (sum, b) => sum + b.grandTotal, 0
     );
 
+    if (authLoading) {
+        return <div className="auth-loading" role="status">Loading your account…</div>;
+    }
+    if (!user) {
+        return <AuthScreen onAuthenticated={({ token, user: signedInUser }) => {
+            localStorage.setItem("bakeryAuthToken", token);
+            setPage(signedInUser.role === "admin" ? "Dashboard" : "Cakes");
+            setUser(signedInUser);
+            loadData(signedInUser.role);
+        }} />;
+    }
+
+    const isAdmin = user.role === "admin";
+    const navigation = isAdmin
+        ? ["Dashboard", "Cakes", "Billing", "History"]
+        : ["Cakes"];
+
     return (
         <div className="app">
 
@@ -208,27 +278,33 @@ function App() {
                 <h2>🍰 GOLDEN</h2>
                 <p className="sub">CAKE BAKERY</p>
 
-                {["Dashboard", "Cakes", "Billing", "History"].map(p => (
+                {navigation.map(p => (
                     <button
                         key={p}
                         className={page === p ? "active" : ""}
                         onClick={() => setPage(p)}
                     >
-                        {p}
+                        {!isAdmin && p === "Cakes" ? "Cake Catalog" : p}
                     </button>
                 ))}
 
-                <p className="sidebottom">Bakery Billing System</p>
+                <div className="sidebottom">
+                    <strong>{user.name}</strong>
+                    <span>{isAdmin ? "Administrator" : "Customer"}</span>
+                    <button className="logout-button" onClick={clearSession}>
+                        Sign out
+                    </button>
+                </div>
             </aside>
 
             <main className="main">
 
                 <header>
-                    <h2>{page}</h2>
-                    <span>ADMIN PANEL</span>
+                    <h2>{!isAdmin && page === "Cakes" ? "Cake Catalog" : page}</h2>
+                    <span>{isAdmin ? "ADMIN" : "CUSTOMER"}</span>
                 </header>
 
-                {page === "Dashboard" && (
+                {isAdmin && page === "Dashboard" && (
                     <>
                         <h1>Welcome to Golden Cake Bakery</h1>
                         <p className="muted">
@@ -257,9 +333,12 @@ function App() {
 
                 {page === "Cakes" && (
                     <>
-                        <h1>{editing ? "Update Cake" : "Add New Cake"}</h1>
+                        <h1>{isAdmin
+                            ? (editing ? "Update Cake" : "Add New Cake")
+                            : "Fresh from our bakery"}
+                        </h1>
 
-                        <form className="form" onSubmit={addCake}>
+                        {isAdmin && <form className="form" onSubmit={addCake}>
                             <input
                                 placeholder="Cake Name"
                                 value={cake.cakeName}
@@ -320,9 +399,9 @@ function App() {
                                     Cancel
                                 </button>
                             )}
-                        </form>
+                        </form>}
 
-                        <h2>Available Cakes</h2>
+                        {isAdmin && <h2>Available Cakes</h2>}
 
                         <div className="cakegrid">
                             {cakes.map(c => (
@@ -332,20 +411,22 @@ function App() {
                                     <p>{c.category}</p>
                                     <h3>₹{c.price}</h3>
                                     <p>Stock: {c.stock}</p>
-                                    <button onClick={() => editCake(c)}>
-                                        Edit
-                                    </button>
-                                    <button className="danger"
-                                        onClick={() => deleteCake(c._id)}>
-                                        Delete
-                                    </button>
+                                    {isAdmin && <>
+                                        <button onClick={() => editCake(c)}>
+                                            Edit
+                                        </button>
+                                        <button className="danger"
+                                            onClick={() => deleteCake(c._id)}>
+                                            Delete
+                                        </button>
+                                    </>}
                                 </div>
                             ))}
                         </div>
                     </>
                 )}
 
-                {page === "Billing" && (
+                {isAdmin && page === "Billing" && (
                     <>
                         <h1>Create Customer Bill</h1>
 
@@ -466,7 +547,7 @@ function App() {
                     </>
                 )}
 
-                {page === "History" && (
+                {isAdmin && page === "History" && (
                     <>
                         <h1>Customer Order History</h1>
                         <BillTable bills={bills} printBill={printBill} />
@@ -475,6 +556,147 @@ function App() {
 
             </main>
         </div>
+    );
+}
+
+function AuthScreen({ onAuthenticated }) {
+    const [role, setRole] = useState("customer");
+    const [isRegistering, setIsRegistering] = useState(false);
+    const [form, setForm] = useState({ name: "", email: "", password: "" });
+    const [error, setError] = useState("");
+    const [submitting, setSubmitting] = useState(false);
+
+    const submit = async (event) => {
+        event.preventDefault();
+        setError("");
+        setSubmitting(true);
+
+        try {
+            const endpoint = isRegistering ? "/auth/register" : "/auth/login";
+            const response = await api.post(endpoint, form);
+            if (response.data.user.role !== role) {
+                setError(`This account is registered as ${response.data.user.role}. Choose that account type to sign in.`);
+                return;
+            }
+            onAuthenticated(response.data);
+        } catch (requestError) {
+            setError(requestError.response?.data?.message || "Unable to connect. Please try again.");
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const chooseRole = (nextRole) => {
+        setRole(nextRole);
+        setIsRegistering(false);
+        setError("");
+    };
+
+    return (
+        <main className="auth-page">
+            <section className="auth-card" aria-labelledby="auth-title">
+                <div className="auth-brand">
+                    <span className="auth-icon" aria-hidden="true">✦</span>
+                    <p className="auth-eyebrow">GOLDEN CAKE BAKERY</p>
+                    <h1 id="auth-title">A little sweetness<br />starts here.</h1>
+                    <p className="auth-intro">
+                        Sign in to explore our freshly made cakes.
+                    </p>
+                </div>
+
+                <div className="auth-form-wrap">
+                    <div className="role-switch" aria-label="Choose account type">
+                        <button
+                            type="button"
+                            className={role === "customer" ? "selected" : ""}
+                            onClick={() => chooseRole("customer")}
+                        >
+                            Customer
+                        </button>
+                        <button
+                            type="button"
+                            className={role === "admin" ? "selected" : ""}
+                            onClick={() => chooseRole("admin")}
+                        >
+                            Admin
+                        </button>
+                    </div>
+
+                    <h2>{isRegistering ? "Create your account" : "Welcome back!"}</h2>
+                    <p className="auth-subtitle">
+                        {role === "admin"
+                            ? "Sign in with your administrator account."
+                            : isRegistering
+                                ? "Join us to browse the cake collection."
+                                : "Sign in to browse our cake collection."}
+                    </p>
+
+                    <form className="auth-form" onSubmit={submit}>
+                        {isRegistering && (
+                            <label>
+                                Your name
+                                <input
+                                    autoComplete="name"
+                                    maxLength="80"
+                                    required
+                                    value={form.name}
+                                    onChange={event => setForm({ ...form, name: event.target.value })}
+                                />
+                            </label>
+                        )}
+                        <label>
+                            Email address
+                            <input
+                                type="email"
+                                autoComplete="email"
+                                maxLength="254"
+                                required
+                                value={form.email}
+                                onChange={event => setForm({ ...form, email: event.target.value })}
+                            />
+                        </label>
+                        <label>
+                            Password
+                            <input
+                                type="password"
+                                autoComplete={isRegistering ? "new-password" : "current-password"}
+                                minLength={isRegistering ? 12 : undefined}
+                                maxLength={isRegistering ? 72 : undefined}
+                                required
+                                value={form.password}
+                                onChange={event => setForm({ ...form, password: event.target.value })}
+                            />
+                            {isRegistering && <small>Use at least 12 characters.</small>}
+                        </label>
+
+                        {error && <p className="auth-error" role="alert">{error}</p>}
+
+                        <button className="auth-submit" type="submit" disabled={submitting}>
+                            {submitting
+                                ? "Please wait…"
+                                : isRegistering ? "Create customer account" : "Sign in"}
+                        </button>
+                    </form>
+
+                    {role === "customer" && (
+                        <p className="auth-toggle">
+                            {isRegistering ? "Already have an account?" : "New to Golden Cake Bakery?"}
+                            <button type="button" onClick={() => {
+                                setIsRegistering(!isRegistering);
+                                setError("");
+                            }}>
+                                {isRegistering ? "Sign in" : "Create account"}
+                            </button>
+                        </p>
+                    )}
+                    {role === "admin" && (
+                        <p className="auth-note">
+                            Admin accounts are created by the system owner.
+                        </p>
+                    )}
+                </div>
+            </section>
+        </main>
     );
 }
 
