@@ -11,7 +11,8 @@ const userSchema = new mongoose.Schema({
         maxlength: 254
     },
     passwordHash: { type: String, required: true, select: false },
-    role: { type: String, enum: ["admin", "customer"], required: true }
+    role: { type: String, enum: ["admin", "customer"], required: true },
+    passwordVersion: { type: Number, default: 0 }
 }, { timestamps: true });
 
 module.exports = mongoose.model("User", userSchema);

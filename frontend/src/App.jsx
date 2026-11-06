@@ -23,6 +23,8 @@ api.interceptors.response.use(undefined, error => {
 function App() {
     const [page, setPage] = useState("Dashboard");
     const [user, setUser] = useState(null);
+    const [authRole, setAuthRole] = useState("customer");
+    const [authNotice, setAuthNotice] = useState("");
     const [authLoading, setAuthLoading] = useState(
         () => Boolean(localStorage.getItem("bakeryAuthToken"))
     );
@@ -258,17 +260,25 @@ function App() {
         return <div className="auth-loading" role="status">Loading your account…</div>;
     }
     if (!user) {
-        return <AuthScreen onAuthenticated={({ token, user: signedInUser }) => {
-            localStorage.setItem("bakeryAuthToken", token);
-            setPage(signedInUser.role === "admin" ? "Dashboard" : "Cakes");
-            setUser(signedInUser);
-            loadData(signedInUser.role);
-        }} />;
+        return (
+            <AuthScreen
+                initialRole={authRole}
+                notice={authNotice}
+                onAuthenticated={({ token, user: signedInUser }) => {
+                    localStorage.setItem("bakeryAuthToken", token);
+                    setAuthNotice("");
+                    setAuthRole(signedInUser.role);
+                    setPage(signedInUser.role === "admin" ? "Dashboard" : "Cakes");
+                    setUser(signedInUser);
+                    loadData(signedInUser.role);
+                }}
+            />
+        );
     }
 
     const isAdmin = user.role === "admin";
     const navigation = isAdmin
-        ? ["Dashboard", "Cakes", "Billing", "History"]
+        ? ["Dashboard", "Cakes", "Billing", "History", "Security"]
         : ["Cakes"];
 
     return (
@@ -554,13 +564,23 @@ function App() {
                     </>
                 )}
 
+                {isAdmin && page === "Security" && (
+                    <ChangePassword
+                        onChanged={message => {
+                            setAuthRole("admin");
+                            setAuthNotice(message);
+                            clearSession();
+                        }}
+                    />
+                )}
+
             </main>
         </div>
     );
 }
 
-function AuthScreen({ onAuthenticated }) {
-    const [role, setRole] = useState("customer");
+function AuthScreen({ initialRole, notice, onAuthenticated }) {
+    const [role, setRole] = useState(initialRole);
     const [isRegistering, setIsRegistering] = useState(false);
     const [form, setForm] = useState({ name: "", email: "", password: "" });
     const [error, setError] = useState("");
@@ -631,6 +651,8 @@ function AuthScreen({ onAuthenticated }) {
                                 : "Sign in to browse our cake collection."}
                     </p>
 
+                    {notice && <p className="auth-success" role="status">{notice}</p>}
+
                     <form className="auth-form" onSubmit={submit}>
                         {isRegistering && (
                             <label>
@@ -697,6 +719,109 @@ function AuthScreen({ onAuthenticated }) {
                 </div>
             </section>
         </main>
+    );
+}
+
+function ChangePassword({ onChanged }) {
+    const [form, setForm] = useState({
+        currentPassword: "",
+        newPassword: "",
+        confirmPassword: ""
+    });
+    const [error, setError] = useState("");
+    const [submitting, setSubmitting] = useState(false);
+
+    const submit = async (event) => {
+        event.preventDefault();
+        setError("");
+
+        if (form.newPassword !== form.confirmPassword) {
+            setError("The new passwords do not match.");
+            return;
+        }
+        if (form.newPassword === form.currentPassword) {
+            setError("Choose a new password that is different from your current one.");
+            return;
+        }
+
+        setSubmitting(true);
+        try {
+            const response = await api.patch("/auth/change-password", {
+                currentPassword: form.currentPassword,
+                newPassword: form.newPassword
+            });
+            setForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+            onChanged(response.data.message);
+        } catch (requestError) {
+            setError(requestError.response?.data?.message || "Unable to update password. Please try again.");
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    return (
+        <section className="security-panel">
+            <p className="auth-eyebrow">ACCOUNT SECURITY</p>
+            <h1>Change admin password</h1>
+            <p className="muted">
+                Verify your current password before choosing a new one.
+                You will need to sign in again after the update.
+            </p>
+
+            <form className="auth-form security-form" onSubmit={submit}>
+                <label>
+                    Current password
+                    <input
+                        type="password"
+                        autoComplete="current-password"
+                        maxLength="72"
+                        required
+                        value={form.currentPassword}
+                        onChange={event => setForm({
+                            ...form,
+                            currentPassword: event.target.value
+                        })}
+                    />
+                </label>
+                <label>
+                    New password
+                    <input
+                        type="password"
+                        autoComplete="new-password"
+                        minLength="12"
+                        maxLength="72"
+                        required
+                        value={form.newPassword}
+                        onChange={event => setForm({
+                            ...form,
+                            newPassword: event.target.value
+                        })}
+                    />
+                    <small>Use at least 12 characters.</small>
+                </label>
+                <label>
+                    Confirm new password
+                    <input
+                        type="password"
+                        autoComplete="new-password"
+                        minLength="12"
+                        maxLength="72"
+                        required
+                        value={form.confirmPassword}
+                        onChange={event => setForm({
+                            ...form,
+                            confirmPassword: event.target.value
+                        })}
+                    />
+                </label>
+
+                {error && <p className="auth-error" role="alert">{error}</p>}
+
+                <button className="auth-submit" type="submit" disabled={submitting}>
+                    {submitting ? "Updating…" : "Update password"}
+                </button>
+            </form>
+        </section>
     );
 }
 

@@ -1,5 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const jwt = require("jsonwebtoken");
+const User = require("../models/User");
 const { authenticate, requireRole } = require("../middleware/auth");
 
 function responseMock() {
@@ -40,6 +42,38 @@ test("authentication rejects malformed bearer tokens", async () => {
 
     assert.equal(res.statusCode, 401);
     assert.equal(continued, false);
+});
+
+test("password changes invalidate previously issued tokens", async () => {
+    const secret = "test-secret-with-at-least-32-characters";
+    process.env.JWT_SECRET = secret;
+    const originalFindById = User.findById;
+    User.findById = async () => ({
+        id: "test-user",
+        role: "admin",
+        passwordVersion: 1
+    });
+
+    try {
+        const token = jwt.sign(
+            { role: "admin", passwordVersion: 0 },
+            secret,
+            { subject: "test-user", expiresIn: "1h" }
+        );
+        const res = responseMock();
+        let continued = false;
+
+        await authenticate({
+            get: () => `Bearer ${token}`
+        }, res, () => {
+            continued = true;
+        });
+
+        assert.equal(res.statusCode, 401);
+        assert.equal(continued, false);
+    } finally {
+        User.findById = originalFindById;
+    }
 });
 
 test("admin-only routes reject customer accounts", () => {

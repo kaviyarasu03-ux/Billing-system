@@ -3,7 +3,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { rateLimit } = require("express-rate-limit");
 const User = require("../models/User");
-const { authenticate } = require("../middleware/auth");
+const { authenticate, requireRole } = require("../middleware/auth");
 
 const router = express.Router();
 const loginLimiter = rateLimit({
@@ -20,6 +20,13 @@ const registrationLimiter = rateLimit({
     legacyHeaders: false,
     message: { message: "Too many accounts created. Try again later." }
 });
+const passwordChangeLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 5,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: { message: "Too many password change attempts. Try again later." }
+});
 
 function publicUser(user) {
     return {
@@ -32,7 +39,7 @@ function publicUser(user) {
 
 function createToken(user) {
     return jwt.sign(
-        { role: user.role },
+        { role: user.role, passwordVersion: user.passwordVersion || 0 },
         process.env.JWT_SECRET,
         { subject: user.id, expiresIn: "8h" }
     );
@@ -111,5 +118,46 @@ router.post("/login", loginLimiter, async (req, res, next) => {
 router.get("/me", authenticate, (req, res) => {
     res.json({ user: publicUser(req.user) });
 });
+
+router.patch(
+    "/change-password",
+    authenticate,
+    requireRole("admin"),
+    passwordChangeLimiter,
+    async (req, res, next) => {
+        const { currentPassword, newPassword } = req.body || {};
+        if (typeof currentPassword !== "string" ||
+            Buffer.byteLength(currentPassword, "utf8") > 72 ||
+            !validPassword(newPassword)) {
+            return res.status(400).json({
+                message: "Enter your current password and a new password with at least 12 characters"
+            });
+        }
+
+        try {
+            const user = await User.findById(req.user.id).select("+passwordHash");
+            if (!user) {
+                return res.status(401).json({ message: "Your account is no longer available" });
+            }
+
+            if (!await bcrypt.compare(currentPassword, user.passwordHash)) {
+                return res.status(401).json({ message: "Current password is incorrect" });
+            }
+            if (await bcrypt.compare(newPassword, user.passwordHash)) {
+                return res.status(400).json({
+                    message: "Choose a new password that is different from your current one"
+                });
+            }
+
+            user.passwordHash = await bcrypt.hash(newPassword, 12);
+            user.passwordVersion = (user.passwordVersion || 0) + 1;
+            await user.save();
+
+            res.json({ message: "Password updated. Sign in again with your new password." });
+        } catch (err) {
+            next(err);
+        }
+    }
+);
 
 module.exports = router;

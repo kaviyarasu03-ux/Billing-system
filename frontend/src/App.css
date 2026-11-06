@@ -271,6 +271,39 @@ button:disabled {
     line-height: 1.5;
 }
 
+.auth-success {
+    padding: 11px 12px;
+    margin-bottom: 18px;
+    border: 1px solid #49683f;
+    border-radius: 7px;
+    color: #c4e7b6;
+    background: rgba(57, 101, 43, .18);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.security-panel {
+    max-width: 640px;
+}
+
+.security-panel h1 {
+    margin-bottom: 10px;
+}
+
+.security-panel > .muted {
+    max-width: 540px;
+    line-height: 1.6;
+}
+
+.security-form {
+    max-width: 480px;
+    padding: 24px;
+    margin-top: 24px;
+    border: 1px solid #493a20;
+    border-radius: 12px;
+    background: #1a1917;
+}
+
 .auth-toggle,
 .auth-note {
     margin-top: 21px;

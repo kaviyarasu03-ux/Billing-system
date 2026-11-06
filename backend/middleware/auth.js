@@ -18,6 +18,9 @@ async function authenticate(req, res, next) {
         if (!user || user.role !== payload.role) {
             return res.status(401).json({ message: "Your session is no longer valid" });
         }
+        if ((user.passwordVersion || 0) !== payload.passwordVersion) {
+            return res.status(401).json({ message: "Your session is no longer valid" });
+        }
 
         req.user = user;
         next();

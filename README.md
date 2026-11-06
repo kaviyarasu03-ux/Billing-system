@@ -38,6 +38,9 @@ Customers can create an account from the sign-in page. Customer accounts can
 browse the cake catalog only. Admins can manage cakes, create bills, and view
 billing history. The backend checks the account role on every protected API
 request; hiding admin controls in the frontend is not the security boundary.
+After signing in, admins can use **Security** in the sidebar to change the
+password. The current password is verified, and changing the password expires
+existing sessions so the admin must sign in again.
 
 ## Cloudflare frontend deployment
 
