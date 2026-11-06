@@ -1,15 +1,15 @@
 FROM node:22-slim
 
-WORKDIR /app
+WORKDIR /app/backend
 
-COPY package*.json ./
+COPY backend/package*.json ./
 RUN npm ci --omit=dev
 
-COPY . .
+COPY backend/ ./
 
 ENV NODE_ENV=production
 ENV PORT=5000
 
 EXPOSE 5000
 
-CMD ["node", "server.js"]
+CMD ["npm", "start"]

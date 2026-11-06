@@ -44,9 +44,16 @@ existing sessions so the admin must sign in again.
 
 ## Deploy the backend to Render
 
-The root `render.yaml` is a Render Blueprint for the Express API. Push the
-repository to GitHub, sign in to Render, choose **New → Blueprint**, and select
-this repository. Render will create the web service using `backend` as its root.
+The root `render.yaml` is a Render Blueprint for the Express API. To create a
+native Node service, push the repository to GitHub, sign in to Render, choose
+**New → Blueprint**, and select this repository. Render will create the web
+service using `backend` as its root.
+
+If you already created a Docker web service, keep its Docker runtime and use
+the repository root as the service's root directory. The root `Dockerfile`
+builds the API from `backend/`. Push any Dockerfile changes to GitHub, then
+trigger a new deploy from Render.
+
 The Blueprint uses the Free instance plan; free services may sleep when idle
 and are best for testing, not production billing workloads.
 
