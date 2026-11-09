@@ -1,16 +1,62 @@
-# React + Vite
+# Golden Cake Bakery Billing System
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React and Vite frontend for the bakery billing app. It connects to the Express
+API to display cakes, manage inventory, create and print bills, and view sales
+history.
 
-Currently, two official plugins are available:
+## Run locally
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Start the backend first. It must have a valid MongoDB connection configured as
+`MONGO_URI` in `backend/.env` and run at `http://localhost:5000`.
 
-## React Compiler
+Then, from this directory:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```powershell
+npm ci
+npm run dev
+```
 
-## Expanding the Oxlint configuration
+Open the local URL printed by Vite, usually `http://localhost:5173`.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+## Configure the API URL
+
+The frontend uses `VITE_API_URL` as the API base URL. For local development,
+it defaults to `http://localhost:5000`. For a deployed site, set `VITE_API_URL`
+to the public backend URL, for example `https://your-service.onrender.com`.
+Do not add `/api` to the value.
+
+Vite embeds this value into the built files, so rebuild and redeploy after
+changing it.
+
+## Build and lint
+
+```powershell
+npm run lint
+npm run build
+```
+
+The production files are written to `dist`.
+
+## Deploy to Cloudflare Pages
+
+Configure the Pages project with:
+
+- **Root directory:** `frontend`
+- **Build command:** `npm run build`
+- **Build output directory:** `dist`
+- **Environment variable:** `VITE_API_URL` set to the public backend URL
+
+For a manual deployment, run these commands from this directory:
+
+```powershell
+npm ci
+npm run build
+npx wrangler pages deploy .\dist --project-name=bakery-billing-system --branch=main
+```
+
+## Access warning
+
+This app currently has no login or authorization. Anyone who can reach the
+frontend or API can manage cakes and billing data. Do not expose it publicly
+with real business or customer data unless you add another access-control
+mechanism.
