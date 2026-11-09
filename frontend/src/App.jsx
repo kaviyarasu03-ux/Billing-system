@@ -3,31 +3,18 @@ import axios from "axios";
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL || "http://localhost:5000")
     .replace(/\/$/, "");
-const api = axios.create({ baseURL: `${API_BASE_URL}/api` });
-
-api.interceptors.request.use(config => {
-    const token = localStorage.getItem("bakeryAuthToken");
-    if (token) config.headers.Authorization = `Bearer ${token}`;
-    return config;
+const api = axios.create({
+    baseURL: `${API_BASE_URL}/api`,
+    timeout: 15000
 });
 
-api.interceptors.response.use(undefined, error => {
-    const isAuthRequest = error.config?.url?.startsWith("/auth/");
-    if (error.response?.status === 401 && !isAuthRequest) {
-        localStorage.removeItem("bakeryAuthToken");
-        window.dispatchEvent(new Event("bakery-session-expired"));
-    }
-    return Promise.reject(error);
-});
+const fetchBakeryData = () => Promise.all([
+    api.get("/cakes"),
+    api.get("/bills")
+]);
 
 function App() {
     const [page, setPage] = useState("Dashboard");
-    const [user, setUser] = useState(null);
-    const [authRole, setAuthRole] = useState("customer");
-    const [authNotice, setAuthNotice] = useState("");
-    const [authLoading, setAuthLoading] = useState(
-        () => Boolean(localStorage.getItem("bakeryAuthToken"))
-    );
     const [cakes, setCakes] = useState([]);
     const [bills, setBills] = useState([]);
 
@@ -44,59 +31,36 @@ function App() {
     const [discount, setDiscount] = useState(0);
     const [editing, setEditing] = useState(null);
 
-    const loadData = useCallback(async (role) => {
+    const loadData = useCallback(async () => {
         try {
-            const requests = [api.get("/cakes")];
-            if (role === "admin") requests.push(api.get("/bills"));
-            const [c, b] = await Promise.all(requests);
+            const [c, b] = await fetchBakeryData();
             setCakes(c.data);
-            setBills(b?.data || []);
+            setBills(b.data);
         } catch {
             alert("Unable to load bakery data. Please try again.");
         }
     }, []);
 
-    const clearSession = () => {
-        localStorage.removeItem("bakeryAuthToken");
-        setUser(null);
-        setCakes([]);
-        setBills([]);
-    };
-
     useEffect(() => {
         let active = true;
-        const token = localStorage.getItem("bakeryAuthToken");
-        if (!token) return undefined;
-
-        api.get("/auth/me")
-            .then(response => {
+        fetchBakeryData()
+            .then(([c, b]) => {
                 if (active) {
-                    setUser(response.data.user);
-                    setPage(response.data.user.role === "admin" ? "Dashboard" : "Cakes");
-                    loadData(response.data.user.role);
+                    setCakes(c.data);
+                    setBills(b.data);
                 }
             })
             .catch(() => {
-                localStorage.removeItem("bakeryAuthToken");
-            })
-            .finally(() => {
-                if (active) setAuthLoading(false);
+                if (active) alert("Unable to load bakery data. Please try again.");
             });
 
         return () => {
             active = false;
         };
-    }, [loadData]);
-
-    useEffect(() => {
-        const expireSession = clearSession;
-        window.addEventListener("bakery-session-expired", expireSession);
-        return () => window.removeEventListener("bakery-session-expired", expireSession);
     }, []);
 
     const addCake = async (e) => {
         e.preventDefault();
-        if (user?.role !== "admin") return;
 
         if (!cake.cakeName.trim() ||
             Number(cake.price) <= 0 ||
@@ -117,7 +81,7 @@ function App() {
                 price: "", stock: ""
             });
 
-            loadData(user.role);
+            loadData();
             alert("Cake saved successfully!");
         } catch (err) {
             alert(err.response?.data?.message || "Unable to save cake");
@@ -139,7 +103,7 @@ function App() {
         if (confirm("Do you want to delete this cake?")) {
             try {
                 await api.delete(`/cakes/${id}`);
-                loadData(user.role);
+                loadData();
             } catch {
                 alert("Delete failed");
             }
@@ -194,7 +158,7 @@ function App() {
             setSelected([]);
             setDiscount(0);
 
-            await loadData(user.role);
+            await loadData();
             setPage("History");
             printBill(response.data);
         } catch (err) {
@@ -256,30 +220,7 @@ function App() {
         (sum, b) => sum + b.grandTotal, 0
     );
 
-    if (authLoading) {
-        return <div className="auth-loading" role="status">Loading your account…</div>;
-    }
-    if (!user) {
-        return (
-            <AuthScreen
-                initialRole={authRole}
-                notice={authNotice}
-                onAuthenticated={({ token, user: signedInUser }) => {
-                    localStorage.setItem("bakeryAuthToken", token);
-                    setAuthNotice("");
-                    setAuthRole(signedInUser.role);
-                    setPage(signedInUser.role === "admin" ? "Dashboard" : "Cakes");
-                    setUser(signedInUser);
-                    loadData(signedInUser.role);
-                }}
-            />
-        );
-    }
-
-    const isAdmin = user.role === "admin";
-    const navigation = isAdmin
-        ? ["Dashboard", "Cakes", "Billing", "History", "Security"]
-        : ["Cakes"];
+    const navigation = ["Dashboard", "Cakes", "Billing", "History"];
 
     return (
         <div className="app">
@@ -294,27 +235,19 @@ function App() {
                         className={page === p ? "active" : ""}
                         onClick={() => setPage(p)}
                     >
-                        {!isAdmin && p === "Cakes" ? "Cake Catalog" : p}
+                        {p}
                     </button>
                 ))}
 
-                <div className="sidebottom">
-                    <strong>{user.name}</strong>
-                    <span>{isAdmin ? "Administrator" : "Customer"}</span>
-                    <button className="logout-button" onClick={clearSession}>
-                        Sign out
-                    </button>
-                </div>
             </aside>
 
             <main className="main">
 
                 <header>
-                    <h2>{!isAdmin && page === "Cakes" ? "Cake Catalog" : page}</h2>
-                    <span>{isAdmin ? "ADMIN" : "CUSTOMER"}</span>
+                    <h2>{page}</h2>
                 </header>
 
-                {isAdmin && page === "Dashboard" && (
+                {page === "Dashboard" && (
                     <>
                         <h1>Welcome to Golden Cake Bakery</h1>
                         <p className="muted">
@@ -343,12 +276,10 @@ function App() {
 
                 {page === "Cakes" && (
                     <>
-                        <h1>{isAdmin
-                            ? (editing ? "Update Cake" : "Add New Cake")
-                            : "Fresh from our bakery"}
+                        <h1>{editing ? "Update Cake" : "Add New Cake"}
                         </h1>
 
-                        {isAdmin && <form className="form" onSubmit={addCake}>
+                        <form className="form" onSubmit={addCake}>
                             <input
                                 placeholder="Cake Name"
                                 value={cake.cakeName}
@@ -409,9 +340,9 @@ function App() {
                                     Cancel
                                 </button>
                             )}
-                        </form>}
+                        </form>
 
-                        {isAdmin && <h2>Available Cakes</h2>}
+                        <h2>Available Cakes</h2>
 
                         <div className="cakegrid">
                             {cakes.map(c => (
@@ -421,22 +352,20 @@ function App() {
                                     <p>{c.category}</p>
                                     <h3>₹{c.price}</h3>
                                     <p>Stock: {c.stock}</p>
-                                    {isAdmin && <>
-                                        <button onClick={() => editCake(c)}>
-                                            Edit
-                                        </button>
-                                        <button className="danger"
-                                            onClick={() => deleteCake(c._id)}>
-                                            Delete
-                                        </button>
-                                    </>}
+                                    <button onClick={() => editCake(c)}>
+                                        Edit
+                                    </button>
+                                    <button className="danger"
+                                        onClick={() => deleteCake(c._id)}>
+                                        Delete
+                                    </button>
                                 </div>
                             ))}
                         </div>
                     </>
                 )}
 
-                {isAdmin && page === "Billing" && (
+                {page === "Billing" && (
                     <>
                         <h1>Create Customer Bill</h1>
 
@@ -557,271 +486,15 @@ function App() {
                     </>
                 )}
 
-                {isAdmin && page === "History" && (
+                {page === "History" && (
                     <>
                         <h1>Customer Order History</h1>
                         <BillTable bills={bills} printBill={printBill} />
                     </>
                 )}
 
-                {isAdmin && page === "Security" && (
-                    <ChangePassword
-                        onChanged={message => {
-                            setAuthRole("admin");
-                            setAuthNotice(message);
-                            clearSession();
-                        }}
-                    />
-                )}
-
             </main>
         </div>
-    );
-}
-
-function AuthScreen({ initialRole, notice, onAuthenticated }) {
-    const [role, setRole] = useState(initialRole);
-    const [isRegistering, setIsRegistering] = useState(false);
-    const [form, setForm] = useState({ name: "", email: "", password: "" });
-    const [error, setError] = useState("");
-    const [submitting, setSubmitting] = useState(false);
-
-    const submit = async (event) => {
-        event.preventDefault();
-        setError("");
-        setSubmitting(true);
-
-        try {
-            const endpoint = isRegistering ? "/auth/register" : "/auth/login";
-            const response = await api.post(endpoint, form);
-            if (response.data.user.role !== role) {
-                setError(`This account is registered as ${response.data.user.role}. Choose that account type to sign in.`);
-                return;
-            }
-            onAuthenticated(response.data);
-        } catch (requestError) {
-            setError(requestError.response?.data?.message || "Unable to connect. Please try again.");
-        } finally {
-            setSubmitting(false);
-        }
-    };
-
-    const chooseRole = (nextRole) => {
-        setRole(nextRole);
-        setIsRegistering(false);
-        setError("");
-    };
-
-    return (
-        <main className="auth-page">
-            <section className="auth-card" aria-labelledby="auth-title">
-                <div className="auth-brand">
-                    <span className="auth-icon" aria-hidden="true">✦</span>
-                    <p className="auth-eyebrow">GOLDEN CAKE BAKERY</p>
-                    <h1 id="auth-title">A little sweetness<br />starts here.</h1>
-                    <p className="auth-intro">
-                        Sign in to explore our freshly made cakes.
-                    </p>
-                </div>
-
-                <div className="auth-form-wrap">
-                    <div className="role-switch" aria-label="Choose account type">
-                        <button
-                            type="button"
-                            className={role === "customer" ? "selected" : ""}
-                            onClick={() => chooseRole("customer")}
-                        >
-                            Customer
-                        </button>
-                        <button
-                            type="button"
-                            className={role === "admin" ? "selected" : ""}
-                            onClick={() => chooseRole("admin")}
-                        >
-                            Admin
-                        </button>
-                    </div>
-
-                    <h2>{isRegistering ? "Create your account" : "Welcome back!"}</h2>
-                    <p className="auth-subtitle">
-                        {role === "admin"
-                            ? "Sign in with your administrator account."
-                            : isRegistering
-                                ? "Join us to browse the cake collection."
-                                : "Sign in to browse our cake collection."}
-                    </p>
-
-                    {notice && <p className="auth-success" role="status">{notice}</p>}
-
-                    <form className="auth-form" onSubmit={submit}>
-                        {isRegistering && (
-                            <label>
-                                Your name
-                                <input
-                                    autoComplete="name"
-                                    maxLength="80"
-                                    required
-                                    value={form.name}
-                                    onChange={event => setForm({ ...form, name: event.target.value })}
-                                />
-                            </label>
-                        )}
-                        <label>
-                            Email address
-                            <input
-                                type="email"
-                                autoComplete="email"
-                                maxLength="254"
-                                required
-                                value={form.email}
-                                onChange={event => setForm({ ...form, email: event.target.value })}
-                            />
-                        </label>
-                        <label>
-                            Password
-                            <input
-                                type="password"
-                                autoComplete={isRegistering ? "new-password" : "current-password"}
-                                minLength={isRegistering ? 12 : undefined}
-                                maxLength={isRegistering ? 72 : undefined}
-                                required
-                                value={form.password}
-                                onChange={event => setForm({ ...form, password: event.target.value })}
-                            />
-                            {isRegistering && <small>Use at least 12 characters.</small>}
-                        </label>
-
-                        {error && <p className="auth-error" role="alert">{error}</p>}
-
-                        <button className="auth-submit" type="submit" disabled={submitting}>
-                            {submitting
-                                ? "Please wait…"
-                                : isRegistering ? "Create customer account" : "Sign in"}
-                        </button>
-                    </form>
-
-                    {role === "customer" && (
-                        <p className="auth-toggle">
-                            {isRegistering ? "Already have an account?" : "New to Golden Cake Bakery?"}
-                            <button type="button" onClick={() => {
-                                setIsRegistering(!isRegistering);
-                                setError("");
-                            }}>
-                                {isRegistering ? "Sign in" : "Create account"}
-                            </button>
-                        </p>
-                    )}
-                    {role === "admin" && (
-                        <p className="auth-note">
-                            Admin accounts are created by the system owner.
-                        </p>
-                    )}
-                </div>
-            </section>
-        </main>
-    );
-}
-
-function ChangePassword({ onChanged }) {
-    const [form, setForm] = useState({
-        currentPassword: "",
-        newPassword: "",
-        confirmPassword: ""
-    });
-    const [error, setError] = useState("");
-    const [submitting, setSubmitting] = useState(false);
-
-    const submit = async (event) => {
-        event.preventDefault();
-        setError("");
-
-        if (form.newPassword !== form.confirmPassword) {
-            setError("The new passwords do not match.");
-            return;
-        }
-        if (form.newPassword === form.currentPassword) {
-            setError("Choose a new password that is different from your current one.");
-            return;
-        }
-
-        setSubmitting(true);
-        try {
-            const response = await api.patch("/auth/change-password", {
-                currentPassword: form.currentPassword,
-                newPassword: form.newPassword
-            });
-            setForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
-            onChanged(response.data.message);
-        } catch (requestError) {
-            setError(requestError.response?.data?.message || "Unable to update password. Please try again.");
-        } finally {
-            setSubmitting(false);
-        }
-    };
-
-    return (
-        <section className="security-panel">
-            <p className="auth-eyebrow">ACCOUNT SECURITY</p>
-            <h1>Change admin password</h1>
-            <p className="muted">
-                Verify your current password before choosing a new one.
-                You will need to sign in again after the update.
-            </p>
-
-            <form className="auth-form security-form" onSubmit={submit}>
-                <label>
-                    Current password
-                    <input
-                        type="password"
-                        autoComplete="current-password"
-                        maxLength="72"
-                        required
-                        value={form.currentPassword}
-                        onChange={event => setForm({
-                            ...form,
-                            currentPassword: event.target.value
-                        })}
-                    />
-                </label>
-                <label>
-                    New password
-                    <input
-                        type="password"
-                        autoComplete="new-password"
-                        minLength="12"
-                        maxLength="72"
-                        required
-                        value={form.newPassword}
-                        onChange={event => setForm({
-                            ...form,
-                            newPassword: event.target.value
-                        })}
-                    />
-                    <small>Use at least 12 characters.</small>
-                </label>
-                <label>
-                    Confirm new password
-                    <input
-                        type="password"
-                        autoComplete="new-password"
-                        minLength="12"
-                        maxLength="72"
-                        required
-                        value={form.confirmPassword}
-                        onChange={event => setForm({
-                            ...form,
-                            confirmPassword: event.target.value
-                        })}
-                    />
-                </label>
-
-                {error && <p className="auth-error" role="alert">{error}</p>}
-
-                <button className="auth-submit" type="submit" disabled={submitting}>
-                    {submitting ? "Updating…" : "Update password"}
-                </button>
-            </form>
-        </section>
     );
 }
 

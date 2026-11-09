@@ -21,26 +21,14 @@ npm ci
 npm start
 ```
 
-Copy `backend/.env.example` to `backend/.env`, replace every placeholder, and set
-`MONGO_URI` to a reachable MongoDB connection string. Use a new admin password
-and a random `JWT_SECRET` of at least 32 characters. On first startup, the API
-creates the admin account from `ADMIN_EMAIL` and `ADMIN_PASSWORD`; it does not
-reset an existing admin password. Keep these values in deployment secrets in
-production. Never commit `.env` or database credentials.
+Copy `backend/.env.example` to `backend/.env`, replace the placeholder, and set
+`MONGO_URI` to a reachable MongoDB connection string. Keep database credentials
+private and never commit `.env`.
 
-Generate a JWT secret locally with:
-
-```powershell
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-```
-
-Customers can create an account from the sign-in page. Customer accounts can
-browse the cake catalog only. Admins can manage cakes, create bills, and view
-billing history. The backend checks the account role on every protected API
-request; hiding admin controls in the frontend is not the security boundary.
-After signing in, admins can use **Security** in the sidebar to change the
-password. The current password is verified, and changing the password expires
-existing sessions so the admin must sign in again.
+The app has no login or authorization. Anyone who can reach the website or API
+can view and change cakes, create and delete bills, and view billing history.
+Use it only in a trusted environment; do not expose it publicly with real
+customer or business data.
 
 ## Deploy the backend to Render
 
@@ -57,9 +45,9 @@ trigger a new deploy from Render.
 The Blueprint uses the Free instance plan; free services may sleep when idle
 and are best for testing, not production billing workloads.
 
-When prompted, provide `MONGO_URI`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD` as
-private environment values. Render generates `JWT_SECRET`. Never add these
-values to the repository. Use a cloud MongoDB Atlas cluster for `MONGO_URI`.
+When prompted, provide `MONGO_URI` as a private environment value. Never add
+database credentials to the repository. Use a cloud MongoDB Atlas cluster for
+`MONGO_URI`.
 After deploying, test the service URL at `/` and confirm it returns the API
 running message.
 
